@@ -1792,6 +1792,10 @@ func (f *Fs) okForServerSide(ctx context.Context, src fs.Object, opName string) 
 		_ = obj.readMetadata(ctx)
 	}
 	requireMetaHash := obj.isComposite() && f.opt.MetaFormat == "simplejson"
+	if !f.useMD5 && !f.useSHA1 {
+		ok = true // hash type "none" stores no hashes in metadata
+		return
+	}
 	if !requireMetaHash && !f.hashAll {
 		ok = true // hash is not required for metadata
 		return
