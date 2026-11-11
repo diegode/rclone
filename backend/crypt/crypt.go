@@ -249,8 +249,11 @@ func NewFs(ctx context.Context, name, rpath string, m configmap.Mapper) (fs.Fs, 
 		wrappedFs, err = cache.Get(ctx, remotePath)
 		// if that didn't produce a file, look for a directory
 		if err != fs.ErrorIsFile {
-			remotePath = fspath.JoinRootPath(remote, cipher.EncryptDirName(rpath))
-			wrappedFs, err = cache.Get(ctx, remotePath)
+			dirPath := fspath.JoinRootPath(remote, cipher.EncryptDirName(rpath))
+			// Don't repeat a lookup that has just failed
+			if err == nil || dirPath != remotePath {
+				wrappedFs, err = cache.Get(ctx, dirPath)
+			}
 		}
 	}
 	if err != fs.ErrorIsFile && err != nil {
