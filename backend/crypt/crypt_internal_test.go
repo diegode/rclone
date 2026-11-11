@@ -4,12 +4,16 @@ import (
 	"bytes"
 	"context"
 	"crypto/md5"
+	"errors"
 	"fmt"
 	"io"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/rclone/rclone/fs"
+	"github.com/rclone/rclone/fs/config/configmap"
+	"github.com/rclone/rclone/fs/config/obscure"
 	"github.com/rclone/rclone/fs/hash"
 	"github.com/rclone/rclone/fs/object"
 	"github.com/rclone/rclone/lib/random"
@@ -128,4 +132,35 @@ func (f *Fs) InternalTest(t *testing.T) {
 	t.Run("ObjectInfo", func(t *testing.T) { testObjectInfo(t, f, false) })
 	t.Run("ObjectInfoWrap", func(t *testing.T) { testObjectInfo(t, f, true) })
 	t.Run("ComputeHash", func(t *testing.T) { testComputeHash(t, f) })
+}
+
+var failingNewFsCalls atomic.Int32
+
+func init() {
+	fs.Register(&fs.RegInfo{
+		Name:        "cryptfailing",
+		Description: "backend whose NewFs always fails, for testing crypt",
+		NewFs: func(ctx context.Context, name, root string, m configmap.Mapper) (fs.Fs, error) {
+			failingNewFsCalls.Add(1)
+			return nil, errors.New("backend unavailable")
+		},
+	})
+}
+
+// A failed lookup of the wrapped remote is not repeated when the file and
+// directory names encrypt to the same path.
+func TestNewFsFailureNotRepeated(t *testing.T) {
+	m := configmap.Simple{
+		"remote":                    ":cryptfailing:",
+		"suffix":                    ".bin",
+		"password":                  obscure.MustObscure("potato"),
+		"filename_encryption":       "standard",
+		"directory_name_encryption": "true",
+		"filename_encoding":         "base32",
+	}
+	failingNewFsCalls.Store(0)
+	_, err := NewFs(context.Background(), "test", "dir/sub", m)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "backend unavailable")
+	assert.Equal(t, int32(1), failingNewFsCalls.Load())
 }
